@@ -759,14 +759,18 @@ function computeMaterialStock(){
   const avgDailyProduction = recentPieces > 0 ? recentPieces / 30 : (s.moldsPerDay * s.moldSize);
   const avgDailyColored = recentColoredPieces / 30;
 
-  const daysRemaining = avgDailyProduction > 0 ? remainingPieces / avgDailyProduction : null;
-  const isLow = daysRemaining !== null && daysRemaining <= s.lowStockDays;
-  const colourDaysRemaining = avgDailyColored > 0 ? remainingColourPieces / avgDailyColored : null;
-  const isColourLow = colourDaysRemaining !== null && colourDaysRemaining <= s.lowStockDays;
+  const hasBasePurchases = basePurchases.length > 0;
+  const hasColourPurchases = colourPurchases.length > 0;
+
+  const daysRemaining = (hasBasePurchases && avgDailyProduction > 0) ? remainingPieces / avgDailyProduction : null;
+  const isLow = hasBasePurchases && daysRemaining !== null && daysRemaining <= s.lowStockDays;
+  const colourDaysRemaining = (hasColourPurchases && avgDailyColored > 0) ? remainingColourPieces / avgDailyColored : null;
+  const isColourLow = hasColourPurchases && colourDaysRemaining !== null && colourDaysRemaining <= s.lowStockDays;
 
   return {totalPurchased, totalPurchasedBase, totalPurchasedColour, totalConsumedValue,
     remainingValue, remainingBaseValue, remainingColourValue, remainingPieces, remainingColourPieces, remainingColourTins,
-    avgDailyProduction, daysRemaining, isLow, colourDaysRemaining, isColourLow, materialPerPiece, colorCostPerPiece};
+    avgDailyProduction, daysRemaining, isLow, colourDaysRemaining, isColourLow, materialPerPiece, colorCostPerPiece,
+    hasBasePurchases, hasColourPurchases};
 }
 
 function computePayback(){
@@ -1387,7 +1391,8 @@ function renderMaterials(){
       <div class="card"><div class="label">Stock in pieces</div><div class="value">${fmt(m.remainingPieces)}</div><div class="sub">pieces' worth of chalk</div></div>
       <div class="card"><div class="label">Total ever purchased</div><div class="value">${fmt(m.totalPurchasedBase)}</div><div class="sub">UGX, all time</div></div>
     </div>
-    ${m.isLow ? `<p class="note" style="color:var(--danger)">Base material is running low — log a new purchase soon to avoid a stoppage.</p>` : ''}
+    ${m.isLow ? `<p class="note" style="color:var(--danger)">Base material is running low — log a new purchase soon to avoid a stoppage.</p>` :
+      !m.hasBasePurchases ? `<p class="note">No base material purchases logged yet — log one above to start tracking stock.</p>` : ''}
 
     <h2 class="section-title">Colour stock (tins)</h2>
     <div class="cards">
@@ -1396,7 +1401,8 @@ function renderMaterials(){
       <div class="card"><div class="label">Stock in tins</div><div class="value">${m.remainingColourTins.toFixed(1)}</div><div class="sub">tins' worth remaining</div></div>
       <div class="card"><div class="label">Total ever purchased</div><div class="value">${fmt(m.totalPurchasedColour)}</div><div class="sub">UGX, all time</div></div>
     </div>
-    ${m.isColourLow ? `<p class="note" style="color:var(--danger)">Colour stock is running low — log a new purchase soon.</p>` : ''}
+    ${m.isColourLow ? `<p class="note" style="color:var(--danger)">Colour stock is running low — log a new purchase soon.</p>` :
+      !m.hasColourPurchases ? `<p class="note">No colour purchases logged yet — log one above to start tracking stock.</p>` : ''}
     <p class="note" style="margin-top:10px">These are estimates based on money spent vs. pieces produced, assuming standard cost-per-piece. Log every purchase, tagged correctly as Base or Colour, for accuracy.</p>
 
     <h2 class="section-title">Purchase history (${purchases.length})</h2>
