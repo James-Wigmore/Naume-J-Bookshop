@@ -475,7 +475,7 @@ function exportAssetsCSV(){
 }
 
 function exportMaterialsCSV(){
-  const csv = toCSV(state.materialPurchases.map(p=>({...p, category: p.category==='colour'?'Colour':'Base'})),
+  const csv = toCSV(state.materialPurchases.map(p=>({...p, category: p.category==='colour'?'Colour':p.category==='base'?'Base':(p.customName||'Other')})),
     [{key:'date',label:'Date'},{key:'category',label:'Material'},{key:'amount',label:'Amount (UGX)'},{key:'notes',label:'Notes'}]);
   downloadFile(`materials-${todayStamp()}.csv`, csv, 'text/csv');
   toast('Materials CSV downloaded');
@@ -732,9 +732,11 @@ function computeMaterialStock(){
 
   const basePurchases = state.materialPurchases.filter(p => (p.category||'base') === 'base');
   const colourPurchases = state.materialPurchases.filter(p => p.category === 'colour');
+  const otherPurchases = state.materialPurchases.filter(p => p.category === 'other');
   const totalPurchasedBase = basePurchases.reduce((sum,p)=> sum + p.amount, 0);
   const totalPurchasedColour = colourPurchases.reduce((sum,p)=> sum + p.amount, 0);
-  const totalPurchased = totalPurchasedBase + totalPurchasedColour;
+  const totalPurchasedOther = otherPurchases.reduce((sum,p)=> sum + p.amount, 0);
+  const totalPurchased = totalPurchasedBase + totalPurchasedColour + totalPurchasedOther;
 
   const allProduction = state.production;
   const totalProducedPiecesAllTime = allProduction.reduce((sum,p)=> sum + (p.molds * p.moldSize), 0);
@@ -767,7 +769,7 @@ function computeMaterialStock(){
   const colourDaysRemaining = (hasColourPurchases && avgDailyColored > 0) ? remainingColourPieces / avgDailyColored : null;
   const isColourLow = hasColourPurchases && colourDaysRemaining !== null && colourDaysRemaining <= s.lowStockDays;
 
-  return {totalPurchased, totalPurchasedBase, totalPurchasedColour, totalConsumedValue,
+  return {totalPurchased, totalPurchasedBase, totalPurchasedColour, totalPurchasedOther, otherPurchasesCount: otherPurchases.length, totalConsumedValue,
     remainingValue, remainingBaseValue, remainingColourValue, remainingPieces, remainingColourPieces, remainingColourTins,
     avgDailyProduction, daysRemaining, isLow, colourDaysRemaining, isColourLow, materialPerPiece, colorCostPerPiece,
     hasBasePurchases, hasColourPurchases};
@@ -1320,6 +1322,7 @@ function renderAssets(){
           ${ASSET_CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('')}
         </select>
       </div>
+      <div id="as-category-custom-wrap" style="display:none"><label>Specify category</label><input id="as-category-custom" placeholder="e.g. Signage"></div>
       <div><label>Cost per unit (UGX)</label><input id="as-cost" type="number" placeholder="e.g. 1000000"></div>
       <div><label>Quantity</label><input id="as-qty" type="number" value="1" min="1"></div>
       <div><label>Date acquired</label><input id="as-date" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
@@ -1377,8 +1380,10 @@ function renderMaterials(){
         <select id="mp-category">
           <option value="base">Base (POP + CaCO3)</option>
           <option value="colour">Colour (tins)</option>
+          <option value="other">Other</option>
         </select>
       </div>
+      <div id="mp-category-custom-wrap" style="display:none"><label>Specify material</label><input id="mp-category-custom" placeholder="e.g. Packaging boxes"></div>
       <div><label>Amount spent (UGX)</label><input id="mp-amount" type="number" placeholder="e.g. 130000"></div>
       <div><label>Notes (optional)</label><input id="mp-notes" placeholder="e.g. supplier name, quantity"></div>
     </div>
@@ -1405,6 +1410,14 @@ function renderMaterials(){
       !m.hasColourPurchases ? `<p class="note">No colour purchases logged yet — log one above to start tracking stock.</p>` : ''}
     <p class="note" style="margin-top:10px">These are estimates based on money spent vs. pieces produced, assuming standard cost-per-piece. Log every purchase, tagged correctly as Base or Colour, for accuracy.</p>
 
+    ${m.otherPurchasesCount > 0 ? `
+    <h2 class="section-title">Other materials</h2>
+    <div class="cards">
+      <div class="card"><div class="label">Total spent</div><div class="value">${fmt(m.totalPurchasedOther)}</div><div class="sub">UGX across ${m.otherPurchasesCount} purchase${m.otherPurchasesCount===1?'':'s'}</div></div>
+    </div>
+    <p class="note" style="margin-top:6px">Tracked for spending records only — these don't fit the POP/CaCO3/Colour recipe, so they're not counted in the stock estimates above.</p>
+    ` : ''}
+
     <h2 class="section-title">Purchase history (${purchases.length})</h2>
     <table>
       <thead><tr><th>Date</th><th>Material</th><th>Amount</th><th>Notes</th><th></th></tr></thead>
@@ -1413,7 +1426,7 @@ function renderMaterials(){
           purchases.map(p => `
             <tr>
               <td>${new Date(p.date).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}</td>
-              <td>${p.category === 'colour' ? 'Colour' : 'Base'}</td>
+              <td>${p.category === 'colour' ? 'Colour' : p.category === 'base' ? 'Base' : (p.customName || 'Other')}</td>
               <td>${fmt(p.amount)}</td>
               <td>${p.notes ? p.notes : '—'}</td>
               <td><button class="btn danger-outline" data-delete-material="${p.id}">Remove</button></td>
@@ -1578,13 +1591,23 @@ function attachHandlers(){
   });
 
   const addAssetBtn = document.getElementById('add-asset');
+  const asCategorySelect = document.getElementById('as-category');
+  if(asCategorySelect) asCategorySelect.onchange = () => {
+    const wrap = document.getElementById('as-category-custom-wrap');
+    if(wrap) wrap.style.display = asCategorySelect.value === 'Other' ? 'block' : 'none';
+  };
+
   if(addAssetBtn) addAssetBtn.onclick = async () => {
     const name = document.getElementById('as-name').value.trim();
-    const category = document.getElementById('as-category').value;
+    let category = document.getElementById('as-category').value;
     const cost = parseFloat(document.getElementById('as-cost').value);
     const quantity = parseFloat(document.getElementById('as-qty').value) || 1;
     const date = document.getElementById('as-date').value;
     const notes = document.getElementById('as-notes').value.trim();
+    if(category === 'Other'){
+      const custom = (document.getElementById('as-category-custom').value || '').trim();
+      if(custom) category = custom;
+    }
     if(!name){ toast('Enter an asset name'); return; }
     if(!cost || cost <= 0){ toast('Enter a cost per unit'); return; }
     state.assets.push({id:'as'+Date.now(), name, category, cost, quantity, date, notes});
@@ -1600,13 +1623,24 @@ function attachHandlers(){
   });
 
   const addMaterialBtn = document.getElementById('add-material');
+  const mpCategorySelect = document.getElementById('mp-category');
+  if(mpCategorySelect) mpCategorySelect.onchange = () => {
+    const wrap = document.getElementById('mp-category-custom-wrap');
+    if(wrap) wrap.style.display = mpCategorySelect.value === 'other' ? 'block' : 'none';
+  };
+
   if(addMaterialBtn) addMaterialBtn.onclick = async () => {
     const date = document.getElementById('mp-date').value;
     const category = document.getElementById('mp-category').value;
     const amount = parseFloat(document.getElementById('mp-amount').value);
     const notes = document.getElementById('mp-notes').value.trim();
+    let customName = '';
+    if(category === 'other'){
+      customName = (document.getElementById('mp-category-custom').value || '').trim();
+      if(!customName){ toast('Enter what this material is'); return; }
+    }
     if(!amount || amount <= 0){ toast('Enter an amount spent'); return; }
-    state.materialPurchases.push({id:'mp'+Date.now(), date, category, amount, notes});
+    state.materialPurchases.push({id:'mp'+Date.now(), date, category, customName, amount, notes});
     await saveMaterialPurchases();
     toast('Purchase logged');
     render();
